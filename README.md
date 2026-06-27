@@ -1,0 +1,63 @@
+# joycon-mapper
+
+把 Switch Joy-Con 手柄按键映射成 macOS 快捷操作。**真实诉求**：语音编程时解放双手——摇杆控鼠标 + 按键 DIY（Fn 唤起麦克风、回车、删除等）。按键映射是刚需。
+
+## 当前状态（✅ 全通）
+
+**最终方案：pyjoycon（持续激活+读）→ 摇杆控鼠标 + 按键 DIY。** 不需要 IOKit/GameController/重启。
+
+| 通路 | 状态 |
+|------|------|
+| pyjoycon 读 0x30 | ✅ 稳定，持续激活后按键/摇杆都上报 |
+| 摇杆 (analog-sticks.right) | ✅ h 741~3461 中心~2101；v 783~2986 中心~1884 |
+| 按键 (get_status buttons) | ✅ right.a/b/x/y、R、摇杆按下、Plus、Home 都能读 |
+| 鼠标控制 (pynput) | ✅ 摇杆推动→光标移动（需辅助功能权限） |
+
+**关键教训**：早期"按键读不到"是**手柄静默态**问题（不是不支持）。pyjoycon 初始化发激活 subcommand 并持续后台读，按键就正常上报。早期用裸 hid/IOKit 间歇读时手柄没被持续激活，才误判为不通。**用 pyjoycon 全程持有连接是关键。**
+
+**注意**：单只 Joy-Con 横握时，相邻按键可能同时上报（如按 A 出 a+b），做映射时需观察处理。
+
+**⚠️ Steam 冲突**：Steam 在后台运行时会接管手柄输入，导致按键时灵时不灵。用本工具前**关掉 Steam**（或在 Steam 设置里关掉控制器支持）。这是早期按键"间歇不上报"的真凶之一。
+
+## 功能（已实现）
+
+- 右摇杆 → 鼠标移动（已验证手感 OK）
+- ZR 扳机 → 长按说话（hold Fn，唤起豆包语音输入，实测通）
+- A=左键点击 / B=回车 / X=删除 / Y=右键
+- 映射在 `joycon.py` 配置区，改一行即可换键
+
+运行：`DYLD_LIBRARY_PATH=/opt/homebrew/Cellar/hidapi/0.15.0/lib .venv312/bin/python joycon.py`
+
+- 点击型按键已加防抖（`DEBOUNCE=0.30s`，防单只横握抖动连发）；还连发就调大
+
+## 产品化方向（用户意图）
+
+目标：**做成可发布的产品，让所有有手柄的人快速配置自己的语音输入方式**。呼应核心目标"做完整产品并发布"。待办：
+- 配置外置（TOML/JSON），非技术用户可改键位映射
+- 语音触发键可视化配置（不用懂代码）
+- 打包成 app（无需 venv/命令行）
+- 处理权限引导（辅助功能授权）、Steam 等冲突检测
+- 支持多种语音工具（豆包/系统听写/第三方），可选触发方式（长按/单击/双击）
+
+**JoyToKey**：Windows 专用，Mac 用不了，已排除。
+
+## 已验证可用的代码
+
+- `gc_keys.swift` — GameController per-button handler 监听（编译 `swiftc -O gc_keys.swift -o gc_keys`）
+- `gc_probe2.swift` — 列出 GameController 暴露的所有元素
+- `combo_test.py` — pyjoycon 读按键（venv312，`DYLD_LIBRARY_PATH=/opt/homebrew/Cellar/hidapi/0.15.0/lib`）
+- `verify_keys.swift` — IOKit 发激活 subcommand + 读 0x30
+- `iokit_rumble.swift` — rumble 震动（已验证手柄会震）
+
+## 环境
+
+- `brew install hidapi`（已装 0.15.0）
+- `.venv312/`（Python 3.12）装了 vibejoy + pyjoycon + hid。注意 PyPI `hidapi`(cython) 在 macOS 26 枚举不到 Joy-Con，要用 `hid`(ctypes) 包
+- Swift 6.2（Xcode 工具链）
+
+## 关键协议事实
+
+- Joy-Con 0x30 标准报告：byte[0]=0x30, byte[1]=timer(+3/帧), byte[2]=连接/电池, byte[3..5]=按键位, byte[6..11]=摇杆, byte[12..]=IMU
+- 激活 subcommand（report 0x01）：`0x40 arg=0x01` Enable IMU；`0x03 arg=0x30` Set report mode 0x30
+- rumble (report 0x10) 是唯一可靠的唤醒/激活手段
+- 单只 Joy-Con 在 GameController 下是 `microGamepad`，双只组合才是 `extendedGamepad`
