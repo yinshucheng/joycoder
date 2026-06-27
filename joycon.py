@@ -35,8 +35,8 @@ def fn_up():
 # 摇杆控鼠标参数
 H_CENTER, H_MIN, H_MAX = 2101, 741, 3461
 V_CENTER, V_MIN, V_MAX = 1884, 783, 2986
-DEADZONE = 0.15      # 死区（防漂移）
-MAX_SPEED = 20.0     # 满推时每帧移动像素
+DEADZONE = 0.22      # 死区（防漂移/防飘，调大更稳）
+MAX_SPEED = 11.0     # 满推时每帧移动像素（调小，防太快）
 POLL_HZ = 120
 DEBOUNCE = 0.30      # 点击型按键防抖窗口（秒）：按一下只触发一次，防抖动连发
 
@@ -151,17 +151,40 @@ def main():
     last_press = {}     # key -> 上次触发按下的时间戳（防抖）
     fn_held = False     # Fn 是否被按住（断线安全）
     period = 1.0 / POLL_HZ
+    last_timer = -1     # 上次的 timer 字节（活性检测）
+    stale = 0           # timer 连续不变的帧数
+
+    def reconnect(reason):
+        nonlocal jc, prev_buttons, fn_held, last_timer, stale
+        print(f"⚠️ 手柄断线（{reason}），重连中...")
+        if fn_held:
+            fn_up(); fn_held = False
+            print("  （已安全松开 Fn）")
+        prev_buttons = set()
+        last_timer = -1; stale = 0
+        try:
+            jc._close()      # 释放旧连接，避免"device already open"
+        except Exception:
+            pass
+        time.sleep(0.5)
+        jc = connect()
+
     while True:
-        # 读状态，断线则安全松开 Fn + 自动重连
+        # 读状态；pyjoycon 后台读线程崩溃时 get_status 不抛异常但 timer 卡住
         try:
             status = jc.get_status()
+            # 活性检测：timer(byte1) 应每帧变化，卡住 = 后台线程死了
+            t = jc._input_report[1]
+            if t == last_timer:
+                stale += 1
+                if stale > POLL_HZ:   # 约 1 秒没更新 → 判定断线
+                    reconnect("数据停止更新")
+                    continue
+            else:
+                stale = 0
+                last_timer = t
         except Exception as e:
-            print(f"⚠️ 手柄断线: {e}")
-            if fn_held:
-                fn_up(); fn_held = False
-                print("  （已安全松开 Fn）")
-            prev_buttons = set()
-            jc = connect()
+            reconnect(str(e))
             continue
 
         # 摇杆控鼠标
