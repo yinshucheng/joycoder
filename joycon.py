@@ -10,7 +10,9 @@
 """
 import time
 from pyjoycon import JoyCon
-from pyjoycon.constants import JOYCON_VENDOR_ID, JOYCON_R_PRODUCT_ID
+from pyjoycon.constants import (
+    JOYCON_VENDOR_ID, JOYCON_R_PRODUCT_ID, JOYCON_L_PRODUCT_ID,
+)
 from pynput.mouse import Controller as MouseCtl, Button
 from pynput.keyboard import Controller as KeyCtl, Key
 import Quartz
@@ -32,15 +34,13 @@ def fn_up():
 
 # ============== 配置区（DIY 改这里）==============
 
-# 摇杆控鼠标参数
-H_CENTER, H_MIN, H_MAX = 2101, 741, 3461
-V_CENTER, V_MIN, V_MAX = 1884, 783, 2986
+# 通用手感参数（左右手柄共用）
 DEADZONE = 0.22      # 死区（防漂移/防飘，调大更稳）
 MAX_SPEED = 11.0     # 满推时每帧移动像素（调小，防太快）
 POLL_HZ = 120
 DEBOUNCE = 0.30      # 点击型按键防抖窗口（秒）：按一下只触发一次，防抖动连发
 
-# 按键映射：按键名 → 动作
+# 动作类型（MAPPING 的值）：
 # 边沿触发型（按下瞬间执行一次）：
 #   ("click", Button.left)          鼠标左键点击
 #   ("click", Button.right)         鼠标右键点击
@@ -50,14 +50,54 @@ DEBOUNCE = 0.30      # 点击型按键防抖窗口（秒）：按一下只触发
 #   ("shell", "command")            执行 shell 命令
 # 长按型（按住=按下，松开=松开）：
 #   ("hold_fn",)                    长按 Fn（豆包语音：按住说话，松开结束）
-# 按键名（右 Joy-Con）：right.a right.b right.x right.y right.r right.zr
-#                       shared.plus shared.home
-MAPPING = {
-    "right.zr":   ("hold_fn",),              # ZR 扳机 = 长按说话（语音输入）★
-    "right.a":    ("click", Button.left),    # A = 左键点击
-    "right.b":    ("key", Key.enter),        # B = 回车
-    "right.x":    ("key", Key.backspace),    # X = 删除
-    "right.y":    ("click", Button.right),   # Y = 右键点击
+
+# Profile：每只手柄一套。自动检测连的是左还是右后加载对应 profile。
+#   stick     摇杆用哪侧（"left" / "right"），对应 analog-sticks 里的键
+#   cal       摇杆标定 (中心, 最小, 最大)，h/v 各一组（实测值）
+#   mapping   基础按键映射（所有模式共用）。键名形如 "<组>.<键>"
+#
+# 可选：多模式（Plus 等键切换）。不写这几个字段 = 单模式（摇杆控鼠标）。
+#   switch_key  切换模式的按键名（如 "shared.plus"）
+#   modes       模式列表，每个 = {"name","stick","mapping"}：
+#                 stick    该模式摇杆行为："mouse"(控鼠标) / "dpad"(推动=方向键)
+#                 mapping  该模式额外/覆盖的按键映射（与基础 mapping 合并）
+# 左手柄键：left.up/down/left/right left.l left.zl  shared.minus shared.capture
+# 右手柄可用键（实测）：right.a/b/x/y right.r right.zr right.sl right.sr
+#                       shared.plus shared.home（r-stick 摇杆按下读得到但不稳，不用）
+PROFILES = {
+    "right": {
+        "stick": "right",
+        "cal": {"h": (2101, 741, 3461), "v": (1884, 783, 2986)},
+        # 基础映射：所有模式完全一致（按键含义不随模式变，避免记混按错）。
+        # 唯一随模式变的是摇杆（mouse / dpad），见 modes。
+        "mapping": {
+            "right.zr":  ("hold_fn",),              # ZR 扳机 = 长按说话 ★
+            "right.y":   ("hold_fn",),              # Y = 长按说话（比肩键顺手）★
+            "right.b":   ("key", Key.enter),        # B = 回车
+            "right.x":   ("key", Key.backspace),    # X = 删除
+            "right.r":   ("click", Button.left),    # R = 左键点击
+            "right.a":   ("key", Key.space),        # A = 空格
+            "right.sl":  ("key", ","),              # SL 内侧键 = 逗号
+            "right.sr":  ("key", Key.esc),          # SR 内侧键 = Esc 取消/中断
+        },
+        "switch_key": "shared.plus",                # Plus = 切换摇杆模式
+        "modes": [
+            {"name": "🖱️ 鼠标模式", "stick": "mouse"},  # 摇杆 → 移动鼠标（默认）
+            {"name": "⬆️ 方向模式", "stick": "dpad"},   # 摇杆推动 → ↑↓←→
+        ],
+    },
+    "left": {
+        "stick": "left",
+        # 实测：静止 h≈2005 v≈2304；推满 h 532~3307 v 1228~3495
+        "cal": {"h": (2005, 532, 3307), "v": (2304, 1228, 3495)},
+        "mapping": {
+            "left.zl":     ("hold_fn",),              # ZL 扳机 = 长按说话（对齐右 ZR）★
+            "left.up":     ("key", Key.enter),        # ↑ = 回车（对齐右 B）
+            "left.down":   ("key", Key.backspace),    # ↓ = 删除（对齐右 X）
+            "left.left":   ("click", Button.left),    # ← = 左键点击（对齐右 A）
+            "left.right":  ("click", Button.right),   # → = 右键点击（对齐右 Y）
+        },
+    },
 }
 
 # ===============================================
@@ -66,7 +106,8 @@ mouse = MouseCtl()
 kb = KeyCtl()
 
 
-def norm(raw, center, lo, hi):
+def norm(raw, cal):
+    center, lo, hi = cal
     if raw <= 0:
         return 0.0
     if raw >= center:
@@ -82,6 +123,19 @@ def norm(raw, center, lo, hi):
 
 
 HOLD_KINDS = {"hold_fn"}  # 长按型动作（按下/松开都要处理）
+
+# 方向模式：摇杆推过此阈值算一次方向（归一化后绝对值），低于则视为回中
+DPAD_THRESHOLD = 0.5
+DPAD_REPEAT = 0.18    # 持续推住时方向键的连发间隔（秒）
+
+
+def stick_direction(nx, ny):
+    """摇杆归一化坐标 → 方向键，或 None（回中/未过阈值）。取主轴，斜推按更大的轴。"""
+    if abs(nx) < DPAD_THRESHOLD and abs(ny) < DPAD_THRESHOLD:
+        return None
+    if abs(nx) >= abs(ny):
+        return Key.right if nx > 0 else Key.left
+    return Key.up if ny > 0 else Key.down
 
 
 def do_press(action):
@@ -120,54 +174,103 @@ def flatten(status_buttons):
     return on
 
 
+# 产品 ID → 手柄侧（profile 名）。检测连的是哪只就加载对应 profile。
+SIDE_BY_PID = {
+    JOYCON_R_PRODUCT_ID: "right",
+    JOYCON_L_PRODUCT_ID: "left",
+}
+
+
 def connect():
-    """等手柄出现并连上。手柄没开/没连时持续等待，不崩溃。"""
+    """等手柄出现并连上，自动识别左/右。返回 (jc, side)。
+
+    左右都连着时优先用右（保持老行为）。手柄没开/没连时持续等待，不崩溃。
+    """
     from pyjoycon.device import get_device_ids
     waited = False
     while True:
-        ids = [i for i in get_device_ids() if i[1] == JOYCON_R_PRODUCT_ID]
-        if ids:
+        present = {i[1] for i in get_device_ids() if i[1] in SIDE_BY_PID}
+        # 左右都在时优先右手柄，行为与单右手柄时一致
+        for pid in (JOYCON_R_PRODUCT_ID, JOYCON_L_PRODUCT_ID):
+            if pid not in present:
+                continue
+            side = SIDE_BY_PID[pid]
             try:
-                jc = JoyCon(JOYCON_VENDOR_ID, JOYCON_R_PRODUCT_ID)
-                print("✓ 手柄已连接")
-                return jc
+                jc = JoyCon(JOYCON_VENDOR_ID, pid)
+                print(f"✓ 手柄已连接（{side} Joy-Con）")
+                return jc, side
             except Exception as e:
-                print(f"连接失败，重试: {e}")
-        elif not waited:
-            print("等待手柄连接...（蓝牙连上右 Joy-Con）", flush=True)
+                print(f"连接失败（{side}），重试: {e}")
+        if not waited:
+            print("等待手柄连接...（蓝牙连上左/右 Joy-Con）", flush=True)
             waited = True
         time.sleep(2)
 
 
 def main():
     print("Joy-Con 控制已启动。")
-    print("  右摇杆 → 移动鼠标")
-    for key, act in MAPPING.items():
-        print(f"  {key} → {act}")
-    print("Ctrl+C 退出。\n")
 
-    jc = connect()
+    jc, side = connect()
+    profile = PROFILES[side]
     prev_buttons = set()
     last_press = {}     # key -> 上次触发按下的时间戳（防抖）
     fn_held = False     # Fn 是否被按住（断线安全）
     period = 1.0 / POLL_HZ
     last_timer = -1     # 上次的 timer 字节（活性检测）
     stale = 0           # timer 连续不变的帧数
+    mode_idx = 0        # 当前模式下标（多模式 profile 用）
+    last_dpad = 0.0     # 方向模式：上次发方向键的时间戳（连发节流）
+    prev_dir = None     # 方向模式：上一帧的方向（回中后才能再次触发）
+
+    def modes():
+        """当前 profile 的模式列表；单模式 profile 合成一个默认模式。"""
+        return profile.get("modes") or [
+            {"name": "🖱️ 鼠标模式", "stick": "mouse", "mapping": {}}
+        ]
+
+    def cur_mode():
+        return modes()[mode_idx % len(modes())]
+
+    def cur_mapping():
+        """基础映射 + 当前模式映射（模式覆盖基础）。"""
+        m = dict(profile.get("mapping", {}))
+        m.update(cur_mode().get("mapping", {}))
+        return m
+
+    def announce():
+        mode = cur_mode()
+        stick_desc = "移动鼠标" if mode["stick"] == "mouse" else "推动=方向键 ↑↓←→"
+        print(f"【{mode['name']}】 {profile['stick']} 摇杆 → {stick_desc}")
+        for key, act in cur_mapping().items():
+            print(f"  {key} → {act}")
+        if profile.get("switch_key"):
+            print(f"  {profile['switch_key']} → 切换模式")
+        print("Ctrl+C 退出。\n")
+
+    announce()
 
     def reconnect(reason):
-        nonlocal jc, prev_buttons, fn_held, last_timer, stale
+        # 重连时重新检测左/右，允许中途换手柄
+        nonlocal jc, side, profile, prev_buttons, fn_held, last_timer, stale
+        nonlocal mode_idx, last_dpad, prev_dir
         print(f"⚠️ 手柄断线（{reason}），重连中...")
         if fn_held:
             fn_up(); fn_held = False
             print("  （已安全松开 Fn）")
         prev_buttons = set()
         last_timer = -1; stale = 0
+        mode_idx = 0; last_dpad = 0.0; prev_dir = None
         try:
             jc._close()      # 释放旧连接，避免"device already open"
         except Exception:
             pass
         time.sleep(0.5)
-        jc = connect()
+        jc, new_side = connect()
+        if new_side != side:
+            side = new_side
+            profile = PROFILES[side]
+            print(f"  （已切换到 {side} Joy-Con 配置）")
+            announce()
 
     while True:
         # 读状态；pyjoycon 后台读线程崩溃时 get_status 不抛异常但 timer 卡住
@@ -187,21 +290,45 @@ def main():
             reconnect(str(e))
             continue
 
-        # 摇杆控鼠标
-        s = status["analog-sticks"]["right"]
-        nx = norm(s["horizontal"], H_CENTER, H_MIN, H_MAX)
-        ny = norm(s["vertical"], V_CENTER, V_MIN, V_MAX)
-        if nx or ny:
-            x, y = mouse.position
-            mouse.position = (x + nx * MAX_SPEED, y - ny * MAX_SPEED)
+        now = time.monotonic()
+
+        # 摇杆：按当前模式分流（控鼠标 / 当方向键）
+        s = status["analog-sticks"][profile["stick"]]
+        cal = profile["cal"]
+        nx = norm(s["horizontal"], cal["h"])
+        ny = norm(s["vertical"], cal["v"])
+        if cur_mode()["stick"] == "dpad":
+            # 方向模式：推过阈值发一次方向键；推住则按 DPAD_REPEAT 连发；回中可再触发
+            d = stick_direction(nx, ny)
+            if d is None:
+                prev_dir = None
+            elif d != prev_dir or now - last_dpad >= DPAD_REPEAT:
+                kb.press(d); kb.release(d)
+                prev_dir = d
+                last_dpad = now
+        else:
+            # 鼠标模式
+            if nx or ny:
+                x, y = mouse.position
+                mouse.position = (x + nx * MAX_SPEED, y - ny * MAX_SPEED)
 
         # 按键边沿检测
+        mapping = cur_mapping()
+        switch_key = profile.get("switch_key")
         cur = flatten(status["buttons"])
-        now = time.monotonic()
         for key in cur - prev_buttons:   # 新按下
-            if key not in MAPPING:
+            # 模式切换键：防抖一下，切换并重置方向状态
+            if key == switch_key:
+                if now - last_press.get(key, 0) >= DEBOUNCE:
+                    mode_idx = (mode_idx + 1) % len(modes())
+                    prev_dir = None; last_dpad = 0.0
+                    last_press[key] = now
+                    print(f"\n切换 → 【{cur_mode()['name']}】")
+                    announce()
                 continue
-            act = MAPPING[key]
+            if key not in mapping:
+                continue
+            act = mapping[key]
             if act[0] in HOLD_KINDS:
                 # 长按型：按下立即触发 down（不防抖，靠 down/up 配对）
                 print(f"按下: {key} → {act}")
@@ -215,10 +342,10 @@ def main():
                     do_press(act)
                     last_press[key] = now
         for key in prev_buttons - cur:   # 新松开
-            if key in MAPPING and MAPPING[key][0] in HOLD_KINDS:
+            if key in mapping and mapping[key][0] in HOLD_KINDS:
                 print(f"松开: {key}")
-                do_release(MAPPING[key])
-                if MAPPING[key][0] == "hold_fn":
+                do_release(mapping[key])
+                if mapping[key][0] == "hold_fn":
                     fn_held = False
         prev_buttons = cur
 
