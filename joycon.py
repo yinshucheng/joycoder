@@ -9,6 +9,7 @@
 需 macOS 辅助功能权限（系统设置→隐私与安全性→辅助功能，给终端授权）。
 """
 import time
+import threading
 from pyjoycon import JoyCon
 from pyjoycon.constants import (
     JOYCON_VENDOR_ID, JOYCON_R_PRODUCT_ID, JOYCON_L_PRODUCT_ID,
@@ -16,6 +17,21 @@ from pyjoycon.constants import (
 from pynput.mouse import Controller as MouseCtl, Button
 from pynput.keyboard import Controller as KeyCtl, Key
 import Quartz
+
+# pyjoycon 的后台读线程(_update_input_report)在 macOS 蓝牙抖动时会偶发
+# HIDException 崩溃，默认会把一大坨 traceback 打到屏幕。这是预期内的老毛病
+# ——主循环的活性检测会自动重连。这里拦掉这个吓人的堆栈，只留一行提示；
+# 其他未预期的线程异常仍照常完整打印（不掩盖真问题）。
+_default_excepthook = threading.excepthook
+
+def _quiet_thread_excepthook(args):
+    # 只认 HIDException（手柄读失败）——它只可能来自 pyjoycon 的后台读线程。
+    if args.exc_type is not None and args.exc_type.__name__ == "HIDException":
+        print("（手柄读取中断，正在自动重连…）", flush=True)
+        return
+    _default_excepthook(args)   # 其他异常照常完整打印
+
+threading.excepthook = _quiet_thread_excepthook
 
 # Fn 键模拟（长按型，用于豆包语音输入）。实测可唤起豆包听写。
 _FN_KEYCODE = 0x3F
