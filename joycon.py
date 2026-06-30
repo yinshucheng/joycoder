@@ -32,6 +32,45 @@ def fn_up():
     Quartz.CGEventSetFlags(ev, 0)
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
 
+
+# ============== 鼠标移动（用 Quartz，不依赖 pynput 读坐标）==============
+# 为何不用 pynput 的 mouse.position 读-改-写：实测某些环境（多屏遗留/坐标系
+# 错乱）下它读回的 y 是垃圾值（如 20055，远超屏高），导致光标卡死在边缘无法
+# 上下。改为自维护坐标 + 每帧 clamp 到所有显示器的联合范围，绝对定位。
+
+def _screen_bounds():
+    """所有活动显示器的联合包围盒 (minx, miny, maxx, maxy)。"""
+    err, ids, cnt = Quartz.CGGetActiveDisplayList(16, None, None)
+    if err or not cnt:
+        b = Quartz.CGDisplayBounds(Quartz.CGMainDisplayID())
+        return (b.origin.x, b.origin.y,
+                b.origin.x + b.size.width, b.origin.y + b.size.height)
+    minx = miny = float("inf"); maxx = maxy = float("-inf")
+    for d in ids[:cnt]:
+        b = Quartz.CGDisplayBounds(d)
+        minx = min(minx, b.origin.x); miny = min(miny, b.origin.y)
+        maxx = max(maxx, b.origin.x + b.size.width)
+        maxy = max(maxy, b.origin.y + b.size.height)
+    return (minx, miny, maxx, maxy)
+
+
+def warp_mouse(x, y):
+    """把光标移到绝对坐标 (x, y)。用 CGEvent 发移动事件，比写 mouse.position 可靠。"""
+    pos = Quartz.CGPointMake(x, y)
+    ev = Quartz.CGEventCreateMouseEvent(
+        None, Quartz.kCGEventMouseMoved, pos, Quartz.kCGMouseButtonLeft)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+
+
+def read_mouse(bounds):
+    """读系统真实光标位置（CGEvent，非 pynput）。落在屏幕范围内才返回，否则 None。"""
+    loc = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+    minx, miny, maxx, maxy = bounds
+    if minx <= loc.x <= maxx and miny <= loc.y <= maxy:
+        return loc.x, loc.y
+    return None
+
+
 # ============== 配置区（DIY 改这里）==============
 
 # 通用手感参数（左右手柄共用）
@@ -68,22 +107,25 @@ PROFILES = {
     "right": {
         "stick": "right",
         "cal": {"h": (2101, 741, 3461), "v": (1884, 783, 2986)},
-        # 基础映射：所有模式完全一致（按键含义不随模式变，避免记混按错）。
-        # 唯一随模式变的是摇杆（mouse / dpad），见 modes。
+        # 基础映射：所有模式一致（含义不随模式变，避免记混）。
+        # 唯一的例外是 A 键，随模式变（见 modes）：鼠标模式=左键，方向模式=空格。
         "mapping": {
             "right.zr":  ("hold_fn",),              # ZR 扳机 = 长按说话 ★
             "right.y":   ("hold_fn",),              # Y = 长按说话（比肩键顺手）★
             "right.b":   ("key", Key.enter),        # B = 回车
             "right.x":   ("key", Key.backspace),    # X = 删除
-            "right.r":   ("click", Button.left),    # R = 左键点击
-            "right.a":   ("key", Key.space),        # A = 空格
+            "right.r":   ("click", Button.left),    # R = 左键点击（肩键，备用）
             "right.sl":  ("key", ","),              # SL 内侧键 = 逗号
             "right.sr":  ("key", Key.esc),          # SR 内侧键 = Esc 取消/中断
         },
         "switch_key": "shared.plus",                # Plus = 切换摇杆模式
         "modes": [
-            {"name": "🖱️ 鼠标模式", "stick": "mouse"},  # 摇杆 → 移动鼠标（默认）
-            {"name": "⬆️ 方向模式", "stick": "dpad"},   # 摇杆推动 → ↑↓←→
+            # 鼠标模式：摇杆控光标，A = 左键点击（拇指最顺手的点击键）
+            {"name": "🖱️ 鼠标模式", "stick": "mouse",
+             "mapping": {"right.a": ("click", Button.left)}},
+            # 方向模式：摇杆推动发 ↑↓←→，A = 空格
+            {"name": "⬆️ 方向模式", "stick": "dpad",
+             "mapping": {"right.a": ("key", Key.space)}},
         ],
     },
     "left": {
@@ -222,6 +264,11 @@ def main():
     last_dpad = 0.0     # 方向模式：上次发方向键的时间戳（连发节流）
     prev_dir = None     # 方向模式：上一帧的方向（回中后才能再次触发）
 
+    # 自维护鼠标坐标：初始放屏幕中心（不读 pynput 的坏坐标），之后累积+clamp
+    sb = _screen_bounds()
+    mx = (sb[0] + sb[2]) / 2
+    my = (sb[1] + sb[3]) / 2
+
     def modes():
         """当前 profile 的模式列表；单模式 profile 合成一个默认模式。"""
         return profile.get("modes") or [
@@ -307,10 +354,17 @@ def main():
                 prev_dir = d
                 last_dpad = now
         else:
-            # 鼠标模式
+            # 鼠标模式：累积到自维护坐标并 clamp 到屏幕范围，再绝对定位
             if nx or ny:
-                x, y = mouse.position
-                mouse.position = (x + nx * MAX_SPEED, y - ny * MAX_SPEED)
+                bounds = _screen_bounds()
+                # 以系统真实光标为基准（若有效），这样和触摸板移动能协同
+                real = read_mouse(bounds)
+                if real:
+                    mx, my = real
+                minx, miny, maxx, maxy = bounds
+                mx = min(maxx - 1, max(minx, mx + nx * MAX_SPEED))
+                my = min(maxy - 1, max(miny, my - ny * MAX_SPEED))
+                warp_mouse(mx, my)
 
         # 按键边沿检测
         mapping = cur_mapping()
