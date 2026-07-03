@@ -22,23 +22,33 @@
 
 ## 快速开始(macOS)
 
-**前置**:macOS + Python 3.10 或更高(系统自带的 3.9 装不上依赖,可 `brew install python@3.12`);一只 Switch Joy-Con,已通过蓝牙连上 Mac(系统设置 → 蓝牙,长按手柄侧边同步键配对)。
+**准备**:macOS + 一只 Switch Joy-Con。
+
+### 一键安装(推荐)
+
+打开「终端」(启动台里搜"终端"),粘贴这一行回车,它会自动装好一切:
 
 ```bash
-# 1. 安装 hidapi(底层 HID 访问需要)
-brew install hidapi
-
-# 2. 克隆并运行(首次会自动建 venv、装依赖)
-git clone https://github.com/yinshucheng/joycoder.git
-cd joycoder
-./start.sh
+curl -fsSL https://raw.githubusercontent.com/yinshucheng/joycoder/main/install.sh | bash
 ```
 
-首次运行会自动创建 `.venv` 并安装 `requirements.txt` 里的依赖,之后 `./start.sh` 直接启动。
+装完照着提示走 3 步(连手柄蓝牙、开权限、`cd ~/joycoder && ./start.sh`)即可。
+
+> 没装过 Homebrew 的话,脚本会提示你先装一句;装完再跑上面这行。
 
 ### 授予辅助功能权限(必须)
 
-系统设置 → 隐私与安全性 → **辅助功能** → 把运行它的终端(Terminal / iTerm)加进去并打开。否则模拟鼠标键盘无效。
+系统设置 → 隐私与安全性 → **辅助功能** → 把运行它的终端(Terminal / iTerm)加进去并打开。否则手柄控制不了鼠标键盘。
+
+### 手动安装(开发者)
+
+```bash
+brew install hidapi
+git clone https://github.com/yinshucheng/joycoder.git
+cd joycoder && ./start.sh   # 首次自动建 venv、装依赖
+```
+
+需 Python 3.10+(系统自带的 3.9 装不上依赖;`start.sh` 会自动找/提示装)。
 
 ## 踩坑提示
 
