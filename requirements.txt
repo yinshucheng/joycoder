@@ -1,0 +1,13 @@
+# 需要 Python 3.10+（pyobjc 12.x 要求 >=3.10）
+
+# Joy-Con 读取（HID 协议 + 摇杆/按键解析）
+joycon-python>=0.2.4
+# joycon-python 的陀螺仪模块依赖 PyGLM，但它没在其依赖里声明，需手动装
+PyGLM>=2.7.0
+# 底层 HID 访问：用 hid(ctypes)，不要用 PyPI 的 hidapi(cython)——
+# 后者在较新 macOS 上枚举不到 Joy-Con
+hid>=1.0.9
+# 模拟鼠标点击/键盘按键
+pynput>=1.8.0
+# macOS 原生事件（鼠标绝对定位、Fn 修饰键、多屏坐标）
+pyobjc-framework-Quartz>=10.0

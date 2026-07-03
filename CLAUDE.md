@@ -6,27 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 把 Switch Joy-Con 映射成 macOS 操作，**面向 AI Coding 场景脱离键盘**：右摇杆控鼠标 + 按键 DIY（语音触发、回车、删除、快捷键）。铁律边界——**语音覆盖文字输入，手柄管控制**（不做手柄拼字母/虚拟键盘）。完整产品定位与 backlog 见 `README.md`，那是产品意图的权威来源。
 
-`joycon.py` 是唯一的成品入口；其余 `*.py` / `*.swift` 都是探测/验证脚本（一次性实验，留作参考与回归证据，不要当作库依赖）。
+`joycon.py` 是唯一的成品入口，也是仓库里唯一的代码文件。早期一堆探测/验证脚本（`*.swift` / `probe*.py` / `test_*.py` 等）已在开源清理时删除；它们硬学来的协议结论都沉淀进了本文件下方的「关键事实」。
 
 ## 运行与开发
 
 ```bash
-# 运行成品（需 hidapi 在 DYLD 路径上）
+# 运行成品（首次会自动建 .venv 并装 requirements.txt）
 ./start.sh
-# 等价于：
-DYLD_LIBRARY_PATH=/opt/homebrew/Cellar/hidapi/0.15.0/lib .venv312/bin/python -u joycon.py
-
-# 跑某个探测/验证脚本（同样需要 DYLD_LIBRARY_PATH）
-DYLD_LIBRARY_PATH=/opt/homebrew/Cellar/hidapi/0.15.0/lib .venv312/bin/python combo_test.py
-
-# 编译 Swift 探测器（无依赖，直接 swiftc）
-swiftc -O verify_keys.swift -o verify_keys
 ```
 
-- **必须用 `.venv312`（Python 3.12），不要用 `.venv`**（3.9，只有裸 hid，无成品依赖）。
-- **必须设 `DYLD_LIBRARY_PATH` 指向 hidapi**，否则 `hid` 包加载不到动态库。
-- **必须用 `hid`（ctypes）包，不能用 PyPI `hidapi`（cython）**——后者在 macOS 26 枚举不到 Joy-Con。
-- 没有测试框架/lint/构建系统。验证方式 = 连上手柄手动跑脚本看输出（happy-path 风格，符合"每阶段先有 happy path 再往下"的开发约定）。
+`start.sh` 自动：① 用 `brew --prefix hidapi` 定位 hidapi 并设 `DYLD_LIBRARY_PATH`（不写死版本）；② 挑一个 3.10+ 的 python 建 `.venv`；③ 装依赖后运行 `joycon.py`。
+
+- **需要 Python 3.10+**：macOS 自带的 3.9 装不上 pyobjc 12.x。
+- **必须设 `DYLD_LIBRARY_PATH` 指向 hidapi**（`start.sh` 已处理），否则 `hid` 包加载不到动态库。
+- **必须用 `hid`（ctypes）包，不能用 PyPI `hidapi`（cython）**——后者在较新 macOS 枚举不到 Joy-Con。
+- **`joycon-python` 隐式依赖 `PyGLM`**（陀螺仪模块），未在其依赖声明里，已单列进 `requirements.txt`。
+- 没有测试框架/lint/构建系统。验证方式 = 连上手柄手动跑 `./start.sh` 看输出（happy-path 风格，符合"每阶段先有 happy path 再往下"的开发约定）；纯逻辑可 `import joycon` 而不抢占手柄连接。
 
 ## 跑起来的前置条件（容易踩的坑）
 

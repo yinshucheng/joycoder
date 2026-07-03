@@ -1,23 +1,11 @@
-# Python venv
+# Python
 .venv/
 .venv312/
 __pycache__/
 *.pyc
 
-# Swift 编译产物（探测脚本的二进制）
-gc_probe
-gc_probe2
-gc_keys
-iokit_led
-iokit_rumble
-identify_and_read
-activate_and_read
-verify_keys
-stick_probe
-*.dSYM/
-
 # macOS
 .DS_Store
-ar_keymap
-keymap
-keymap_dbg
+
+# Claude Code 本地配置
+.claude/
