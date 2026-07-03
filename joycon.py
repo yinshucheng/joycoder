@@ -3,10 +3,10 @@
 
 右摇杆 → 鼠标移动；面板按键 → 可配置动作（点击/回车/删除/快捷键）。
 
-运行：
-  DYLD_LIBRARY_PATH=/opt/homebrew/Cellar/hidapi/0.15.0/lib .venv312/bin/python joycon.py
+运行：./start.sh（首次会自动建 venv、装依赖、定位 hidapi）。
 
-需 macOS 辅助功能权限（系统设置→隐私与安全性→辅助功能，给终端授权）。
+前置：brew install hidapi；蓝牙连上 Joy-Con；给终端授予 macOS
+辅助功能权限（系统设置→隐私与安全性→辅助功能）。详见 README。
 """
 import time
 import threading
