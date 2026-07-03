@@ -57,6 +57,41 @@ cd joycoder && ./start.sh   # 首次自动建 venv、装依赖
 - **单只手柄横握会串键**:相邻按键可能同时上报(按 A 出 a+b),已加防抖(`DEBOUNCE`);还连发就把它调大。
 - **手感调节**:摇杆速度 `MAX_SPEED`、死区 `DEADZONE`、防抖 `DEBOUNCE` 都在 `joycon.py` 顶部。
 
+## 给 AI Agent(把这一节连同本 README 丢给你的 coding agent,它能照着装好)
+
+你(agent)的目标:在这台 macOS 上把 joycoder 装好并能运行。按顺序执行,每步用给出的检查判断成败,失败查「常见故障」。
+
+**环境事实(照做,别自作主张换方案)**
+- 仅支持 **macOS**(用了 Quartz / pynput 的 mac 原生事件)。
+- 需 **Python 3.10+**;macOS 自带的 3.9 装不上 `pyobjc`,会失败。
+- 底层 HID 必须用 **`hid`(ctypes)** 包,**不要**用 PyPI 的 `hidapi`(cython)——后者在较新 macOS 枚举不到 Joy-Con。二者都靠 `brew install hidapi` 提供的动态库,运行时需要 `DYLD_LIBRARY_PATH` 指向它(`start.sh` 已自动处理,手动跑才需自己设)。
+- `joycon-python` 隐式依赖 `PyGLM`,已在 `requirements.txt` 里显式列出。
+
+**安装步骤**
+1. 确认 Homebrew:`command -v brew`。没有 → 让用户装(装 brew 需交互式 sudo,agent 不要代跑):`/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
+2. 装 hidapi:`brew install hidapi`。检查:`brew --prefix hidapi` 有输出。
+3. 拉代码:`git clone https://github.com/yinshucheng/joycoder.git ~/joycoder && cd ~/joycoder`
+4. 一键装 + 起:`./start.sh`(首次自动挑 3.10+ 的 python 建 `.venv`、装依赖、设好 `DYLD_LIBRARY_PATH` 再运行)。
+   - 也可直接 `curl -fsSL https://raw.githubusercontent.com/yinshucheng/joycoder/main/install.sh | bash` 一步到位。
+
+**成功判断**:运行后终端打印 `Joy-Con 控制已启动。` 和 `等待手柄连接...`。**这就是装成功了**——即使没接手柄,进程停在等待也算通;接上手柄后会打印 `✓ 手柄已连接`。
+
+**两件 agent 代替不了、必须提醒用户手动做的事**:
+- **蓝牙连 Joy-Con**:长按手柄侧边小圆钮进配对,系统设置→蓝牙里连上。
+- **辅助功能权限**:系统设置→隐私与安全性→辅助功能→打开运行它的终端。**没开的话:程序正常跑、能读到手柄,但鼠标键盘纹丝不动。** 这是最常见的"装好了却没反应"。
+
+**常见故障 → 对策**
+| 现象 | 原因 / 对策 |
+|------|-------------|
+| `No module named 'glm'` | `requirements.txt` 没装全,重新 `.venv/bin/pip install -r requirements.txt` |
+| 装 `pyobjc-framework-Quartz` 报 `Requires-Python >=3.10` | 用了 3.9,换 3.10+(`brew install python@3.12`) |
+| `找不到 hidapi` | 没 `brew install hidapi` |
+| 能读手柄但鼠标不动 | 没开辅助功能权限(见上) |
+| 按键时灵时不灵 | 后台开着 Steam,关掉它或关其控制器支持 |
+| 光标乱跳/连发 | 调 `joycon.py` 顶部的 `DEADZONE`/`MAX_SPEED`/`DEBOUNCE` |
+
+**改键位**:全部映射在 `joycon.py` 顶部 `PROFILES` 配置区,动作类型(点击/按键/组合键/shell/长按)见该区注释,改一行即可。
+
 ## 工作原理(一句话)
 
 用 [pyjoycon](https://github.com/tocoteron/joycon-python) 全程持有手柄连接、持续读标准报告(0x30),解析摇杆和按键,再用 macOS 原生事件(Quartz / pynput)模拟鼠标键盘。**全程持有连接是关键**——间歇性读取会让手柄进入静默态,按键就上报不了。
