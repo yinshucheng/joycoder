@@ -1,6 +1,6 @@
-# joycon-mapper
+# joycoder
 
-用 Nintendo Switch Joy-Con 手柄操作你的 Mac —— **专为 AI Coding 场景设计,尽量脱离键盘**。
+用 Nintendo Switch Joy-Con 手柄操作你的 Mac —— **专为 AI Coding / 语音写代码场景设计,尽量脱离键盘**。
 
 摇杆控鼠标,手柄按键映射成常用操作(长按说话、回车、删除、快捷键)。核心理念:**语音负责打字,手柄负责控制**。AI 帮你写代码本来就少打字,这个工具把剩下的"控制"也从键盘搬到手里的手柄上。
 
@@ -29,8 +29,8 @@
 brew install hidapi
 
 # 2. 克隆并运行(首次会自动建 venv、装依赖)
-git clone https://github.com/yinshucheng/joycon-mapper.git
-cd joycon-mapper
+git clone https://github.com/yinshucheng/joycoder.git
+cd joycoder
 ./start.sh
 ```
 
